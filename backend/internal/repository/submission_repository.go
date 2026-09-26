@@ -102,18 +102,33 @@ func (r *SubmissionRepository) List(ctx context.Context, filter bson.M, skip, li
 	return subs, total, nil
 }
 
-// AggregatePoints 聚合得分：按日期范围、状态统计每个用户的积分与解题数（排行榜复用）。
-func (r *SubmissionRepository) AggregatePoints(ctx context.Context, filter bson.M) ([]bson.M, error) {
+// AggregateFirstAcceptPoints 按"每题首次通过"聚合每个用户的积分与解题数（排行榜复用）。
+// 重复通过同一题只计最早一条 accepted；since 非 nil 时按首次通过发生时间过滤（日榜/周榜）。
+func (r *SubmissionRepository) AggregateFirstAcceptPoints(ctx context.Context, since *time.Time) ([]bson.M, error) {
+	// 先按提交时间升序，group 时每组只保留首次通过那条记录。
 	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
+		{{Key: "$match", Value: bson.M{"status": "accepted"}}},
+		{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: 1}, {Key: "_id", Value: 1}}}},
 		{{Key: "$group", Value: bson.M{
-			"_id":     "$user_id",
-			"points":  bson.M{"$sum": "$points_awarded"},
-			"solved":  bson.M{"$sum": 1},
+			"_id":      bson.M{"user_id": "$user_id", "problem_id": "$problem_id"},
+			"first_at": bson.M{"$first": "$created_at"},
+			"points":   bson.M{"$first": "$points_awarded"},
+			"username": bson.M{"$first": "$username"},
+		}}},
+	}
+	// 时间归属到首次通过：必须在按题去重之后再过滤，否则会把更早周期的通过误判为非首次。
+	if since != nil {
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.M{"first_at": bson.M{"$gte": *since}}}})
+	}
+	pipeline = append(pipeline,
+		bson.D{{Key: "$group", Value: bson.M{
+			"_id":      "$_id.user_id",
+			"points":   bson.M{"$sum": "$points"},
+			"solved":   bson.M{"$sum": 1},
 			"nickname": bson.M{"$last": "$username"},
 		}}},
-		{{Key: "$sort", Value: bson.D{{Key: "points", Value: -1}, {Key: "solved", Value: -1}}}},
-	}
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "points", Value: -1}, {Key: "solved", Value: -1}}}},
+	)
 	cur, err := r.coll.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate submission points: %w", err)
@@ -130,15 +145,17 @@ func (r *SubmissionRepository) AggregatePoints(ctx context.Context, filter bson.
 	return out, nil
 }
 
-// CountAcceptedByUser 统计用户在某题目的通过次数（成就判定复用）。
-func (r *SubmissionRepository) CountAcceptedByUser(ctx context.Context, userID, problemID primitive.ObjectID) (int64, error) {
+// CountAcceptedByUserBefore 统计用户在某题目上、早于指定提交的通过次数。
+// 返回 0 即表示 excludeSubmissionID 这条是该用户对该题的首次通过。
+func (r *SubmissionRepository) CountAcceptedByUserBefore(ctx context.Context, userID, problemID, excludeSubmissionID primitive.ObjectID) (int64, error) {
 	n, err := r.coll.CountDocuments(ctx, bson.M{
 		"user_id":    userID,
 		"problem_id": problemID,
 		"status":     "accepted",
+		"_id":        bson.M{"$ne": excludeSubmissionID},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("count accepted by user: %w", err)
+		return 0, fmt.Errorf("count accepted by user before: %w", err)
 	}
 	return n, nil
 }

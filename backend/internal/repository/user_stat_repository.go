@@ -77,10 +77,11 @@ func (r *UserStatRepository) CompleteCourse(ctx context.Context, userID primitiv
 	return nil
 }
 
-// AddSubmission 原子增加提交数；accepted=true 时同时增加通过数与语言分布。
-func (r *UserStatRepository) AddSubmission(ctx context.Context, userID primitive.ObjectID, language string, accepted bool, dayKey string) error {
+// AddSubmission 原子增加提交数并记录日活跃；firstAccept=true 时才增加通过数，
+// 并只按该次（每题首次通过）提交使用的语言累计语言分布。重复通过、未通过均不计。
+func (r *UserStatRepository) AddSubmission(ctx context.Context, userID primitive.ObjectID, language string, firstAccept bool, dayKey string) error {
 	inc := bson.M{"total_submissions": 1, "daily_activity." + dayKey: 1}
-	if accepted {
+	if firstAccept {
 		inc["accepted_submissions"] = 1
 		inc["language_dist."+language] = 1
 	}

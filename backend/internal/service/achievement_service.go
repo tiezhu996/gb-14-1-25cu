@@ -61,11 +61,8 @@ func (s *AchievementService) CheckAfterSignIn(ctx context.Context, userID primit
 	}
 }
 
-// CheckAfterSubmission 提交通过后检查解题类成就。
-func (s *AchievementService) CheckAfterSubmission(ctx context.Context, userID primitive.ObjectID, status string, problem *model.Problem) {
-	if status != constants.SubmissionAccepted {
-		return
-	}
+// CheckAfterFirstAccept 首次通过题目后检查解题类成就（重复通过不触发）。
+func (s *AchievementService) CheckAfterFirstAccept(ctx context.Context, userID primitive.ObjectID, problem *model.Problem) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return

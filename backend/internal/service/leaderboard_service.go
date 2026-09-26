@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/blueship581/codelearn/internal/constants"
@@ -27,22 +26,23 @@ func NewLeaderboardService(subRepo *repository.SubmissionRepository, userRepo *r
 }
 
 // Get 查询排行榜：period 支持 daily/weekly/total。
+// 每题只按首次通过计分/计解题数；日榜/周榜按首次通过发生的时间归属。
 func (s *LeaderboardService) Get(ctx context.Context, period string, limit int64) ([]dto.LeaderboardEntryResponse, error) {
-	filter := bson.M{"status": constants.SubmissionAccepted}
+	var since *time.Time
 	now := time.Now()
 	switch period {
 	case "daily":
 		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		filter["created_at"] = bson.M{"$gte": start}
+		since = &start
 	case "weekly":
 		start := now.AddDate(0, 0, -7)
-		filter["created_at"] = bson.M{"$gte": start}
+		since = &start
 	case "total":
 		// 总榜不过滤时间
 	default:
 		return nil, util.WrapAppError(constants.CodeBadRequest, "排行榜周期必须为 daily/weekly/total", nil)
 	}
-	rows, err := s.subRepo.AggregatePoints(ctx, filter)
+	rows, err := s.subRepo.AggregateFirstAcceptPoints(ctx, since)
 	if err != nil {
 		return nil, util.WrapAppError(constants.CodeInternal, constants.MsgInternalError, err)
 	}

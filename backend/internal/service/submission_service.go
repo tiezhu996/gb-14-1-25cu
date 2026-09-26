@@ -78,8 +78,21 @@ func (s *SubmissionService) Submit(ctx context.Context, userID primitive.ObjectI
 	s.logger.Info(constants.LogSubmissionCreated, "submission_id", sub.ID.Hex(), "problem_id", problemID.Hex(), "language", req.Language)
 
 	results, status, score, runtimeMs, errMsg := s.judge.Judge(ctx, req.Language, req.Code, problem.TestCases, problem.TimeLimit)
-	pointsAwarded := int64(0)
+
+	// 先按"写入前已有几条通过记录"判定本次是否为该用户对该题的首次通过，
+	// 避免 UpdateResult 之后再计数带来的并发误判窗口。
+	firstAccept := false
 	if status == constants.SubmissionAccepted {
+		already, err := s.subRepo.CountAcceptedByUserBefore(ctx, userID, problemID, sub.ID)
+		if err != nil {
+			return nil, util.WrapAppError(constants.CodeInternal, constants.MsgInternalError, err)
+		}
+		firstAccept = already == 0
+	}
+
+	// 重复通过不再加分，提交记录中也不再带积分，保证聚合口径统一。
+	pointsAwarded := int64(0)
+	if firstAccept {
 		pointsAwarded = int64(problem.Points)
 	}
 	if err := s.subRepo.UpdateResult(ctx, sub.ID, status, score, pointsAwarded, runtimeMs, results, errMsg); err != nil {
@@ -89,18 +102,15 @@ func (s *SubmissionService) Submit(ctx context.Context, userID primitive.ObjectI
 	// 统计联动（原子操作，无事务依赖）：题目提交数、用户统计。
 	_ = s.problemRepo.IncSubmit(ctx, problemID)
 	dayKey := util.SignInDailyKey(time.Now())
-	_ = s.statRepo.AddSubmission(ctx, userID, req.Language, status == constants.SubmissionAccepted, dayKey)
+	_ = s.statRepo.AddSubmission(ctx, userID, req.Language, firstAccept, dayKey)
 
-	if status == constants.SubmissionAccepted {
+	if firstAccept {
 		// 首次通过才累计积分/解题数/通过数，避免重复刷分。
-		already, err := s.subRepo.CountAcceptedByUser(ctx, userID, problemID)
-		if err == nil && already <= 1 {
-			_ = s.userRepo.AddPoints(ctx, userID, pointsAwarded)
-			_ = s.userRepo.MarkSolved(ctx, userID)
-			_ = s.problemRepo.IncAccepted(ctx, problemID)
-		}
+		_ = s.userRepo.AddPoints(ctx, userID, pointsAwarded)
+		_ = s.userRepo.MarkSolved(ctx, userID)
+		_ = s.problemRepo.IncAccepted(ctx, problemID)
 		// 成就检查：首次通过/完成 N 题/首次通过困难题。
-		s.achievement.CheckAfterSubmission(ctx, userID, status, problem)
+		s.achievement.CheckAfterFirstAccept(ctx, userID, problem)
 	}
 
 	sub.Status = status
