@@ -61,7 +61,7 @@ func Seed(ctx context.Context, db *mongo.Database, logger *slog.Logger) error {
 			return err
 		}
 		_ = statRepo.Upsert(ctx, student.ID)
-		_ = statRepo.AddSubmission(ctx, student.ID, constants.LanguagePython, true, util.SignInDailyKey(time.Now()))
+		_ = statRepo.AddSubmission(ctx, student.ID, constants.LanguagePython, true, true, util.SignInDailyKey(time.Now()))
 	}
 
 	// 课程

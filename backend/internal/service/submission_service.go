@@ -88,13 +88,18 @@ func (s *SubmissionService) Submit(ctx context.Context, userID primitive.ObjectI
 
 	// 统计联动（原子操作，无事务依赖）：题目提交数、用户统计。
 	_ = s.problemRepo.IncSubmit(ctx, problemID)
-	dayKey := util.SignInDailyKey(time.Now())
-	_ = s.statRepo.AddSubmission(ctx, userID, req.Language, status == constants.SubmissionAccepted, dayKey)
-
-	if status == constants.SubmissionAccepted {
-		// 首次通过才累计积分/解题数/通过数，避免重复刷分。
+	accepted := status == constants.SubmissionAccepted
+	// 首次通过才累计积分/解题数/通过数与语言分布，避免重复刷分。
+	firstAccept := false
+	if accepted {
 		already, err := s.subRepo.CountAcceptedByUser(ctx, userID, problemID)
-		if err == nil && already <= 1 {
+		firstAccept = err == nil && already <= 1
+	}
+	dayKey := util.SignInDailyKey(time.Now())
+	_ = s.statRepo.AddSubmission(ctx, userID, req.Language, accepted, firstAccept, dayKey)
+
+	if accepted {
+		if firstAccept {
 			_ = s.userRepo.AddPoints(ctx, userID, pointsAwarded)
 			_ = s.userRepo.MarkSolved(ctx, userID)
 			_ = s.problemRepo.IncAccepted(ctx, problemID)

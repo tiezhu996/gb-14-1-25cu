@@ -102,18 +102,33 @@ func (r *SubmissionRepository) List(ctx context.Context, filter bson.M, skip, li
 	return subs, total, nil
 }
 
-// AggregatePoints 聚合得分：按日期范围、状态统计每个用户的积分与解题数（排行榜复用）。
-func (r *SubmissionRepository) AggregatePoints(ctx context.Context, filter bson.M) ([]bson.M, error) {
+// AggregatePoints 聚合得分：按每题首次通过统计每个用户的积分与解题数（排行榜复用）。
+// 重复通过不重复计分；since 非空时按首次通过时间归属（日榜/周榜）。
+func (r *SubmissionRepository) AggregatePoints(ctx context.Context, since *time.Time) ([]bson.M, error) {
 	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
+		// 只看通过记录：未通过的提交不参与积分与解题数。
+		{{Key: "$match", Value: bson.M{"status": "accepted"}}},
+		// 按 (用户, 题目) 归组取首次通过，重复通过只算一次。
+		{{Key: "$sort", Value: bson.D{{Key: "created_at", Value: 1}}}},
 		{{Key: "$group", Value: bson.M{
-			"_id":     "$user_id",
-			"points":  bson.M{"$sum": "$points_awarded"},
-			"solved":  bson.M{"$sum": 1},
+			"_id":      bson.M{"user_id": "$user_id", "problem_id": "$problem_id"},
+			"first_at": bson.M{"$first": "$created_at"},
+			"points":   bson.M{"$first": "$points_awarded"},
+			"username": bson.M{"$first": "$username"},
+		}}},
+	}
+	if since != nil {
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.M{"first_at": bson.M{"$gte": *since}}}})
+	}
+	pipeline = append(pipeline,
+		bson.D{{Key: "$group", Value: bson.M{
+			"_id":      "$_id.user_id",
+			"points":   bson.M{"$sum": "$points"},
+			"solved":   bson.M{"$sum": 1},
 			"nickname": bson.M{"$last": "$username"},
 		}}},
-		{{Key: "$sort", Value: bson.D{{Key: "points", Value: -1}, {Key: "solved", Value: -1}}}},
-	}
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "points", Value: -1}, {Key: "solved", Value: -1}}}},
+	)
 	cur, err := r.coll.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate submission points: %w", err)
