@@ -1,0 +1,116 @@
+openapi: 3.0.3
+info:
+  title: CodeLearn 在线编程学习平台 API
+  version: 1.0.0
+  description: Go 1.22 + Gin + mongo-driver 实现的在线编程学习平台后端接口。统一响应格式 { "code": 0, "message": "ok", "data": ... }。
+servers:
+  - url: http://localhost:3010/api/v1
+paths:
+  /healthz:
+    get:
+      summary: 健康检查
+      responses:
+        '200': { description: healthy }
+  /auth/register:
+    post:
+      summary: 注册
+      requestBody: { content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: ok }
+  /auth/login:
+    post:
+      summary: 登录
+      requestBody: { content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: ok }
+  /auth/sign-in:
+    post:
+      summary: 每日签到
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /users/me:
+    get:
+      summary: 获取当前用户
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /courses:
+    get:
+      summary: 课程列表
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+    post:
+      summary: 创建课程（管理员）
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /problems:
+    get:
+      summary: 题目列表
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+    post:
+      summary: 创建题目（管理员）
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /problems/{id}/submit:
+    post:
+      summary: 提交代码评测
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: ok }
+  /submissions:
+    get:
+      summary: 提交记录列表
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /problems/{id}/discussions:
+    get:
+      summary: 题目讨论区
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+    post:
+      summary: 发布讨论
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /leaderboard:
+    get:
+      summary: 排行榜（daily/weekly/total）
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [daily, weekly, total] } }
+      responses:
+        '200': { description: ok }
+  /achievements/me:
+    get:
+      summary: 我的成就
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /dashboard/me:
+    get:
+      summary: 个人学习仪表盘
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+  /audits:
+    get:
+      summary: 审计日志（管理员）
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: ok }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

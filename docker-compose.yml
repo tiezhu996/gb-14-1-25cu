@@ -1,0 +1,81 @@
+name: codelearn
+
+services:
+  frontend:
+    build: ./frontend
+    container_name: ${COMPOSE_PROJECT_NAME:-codelearn}-frontend
+    ports:
+      - "${FRONTEND_PORT:-8010}:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: ${COMPOSE_PROJECT_NAME:-codelearn}-backend
+    environment:
+      PORT: "8080"
+      ENV: "production"
+      LOG_LEVEL: "info"
+      MONGO_URI: "mongodb://${DB_USER:-codelearn_user}:${DB_PASSWORD:-codelearn_pwd}@db:27017/${DB_NAME:-codelearn_db}?authSource=admin"
+      DB_NAME: "${DB_NAME:-codelearn_db}"
+      REDIS_ADDR: "${REDIS_ADDR:-redis:6379}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      JWT_SECRET: "${JWT_SECRET:-change_me_to_a_long_random_string}"
+      JUDGE_TIMEOUT_SECONDS: "10"
+      SEED_ADMIN: "true"
+    ports:
+      - "${BACKEND_PORT:-3010}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  db:
+    image: mongo:7.0
+    container_name: ${COMPOSE_PROJECT_NAME:-codelearn}-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: "${DB_USER:-codelearn_user}"
+      MONGO_INITDB_ROOT_PASSWORD: "${DB_PASSWORD:-codelearn_pwd}"
+      MONGO_INITDB_DATABASE: "${DB_NAME:-codelearn_db}"
+    ports:
+      - "${DB_PORT:-44008}:27017"
+    volumes:
+      - dbdata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-codelearn}-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-46308}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  dbdata:
+  redisdata:
